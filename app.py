@@ -1,8 +1,9 @@
+
 import streamlit as st
 import librosa
 import numpy as np
 import whisper
-from moviepy.editor import VideoFileClip, TextClip, CompositeVideoClip
+from moviepy import VideoFileClip, TextClip, CompositeVideoClip
 import os
 
 # --- DASHBOARD KONFIGURATION ---
