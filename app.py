@@ -1,10 +1,16 @@
-
 import streamlit as st
 import librosa
 import numpy as np
 import whisper
-from moviepy import VideoFileClip, TextClip, CompositeVideoClip
 import os
+
+try:
+    from moviepy.editor import VideoFileClip, TextClip, CompositeVideoClip
+except ImportError:
+    from moviepy.video.io.VideoFileClip import VideoFileClip
+    from moviepy.video.VideoClip import TextClip
+    from moviepy.video.compositing.CompositeVideoClip import CompositeVideoClip
+
 
 # --- DASHBOARD KONFIGURATION ---
 st.set_page_config(page_title="KI Stream Clipper", layout="wide")
