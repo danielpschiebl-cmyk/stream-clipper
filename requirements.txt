@@ -1,8 +1,7 @@
 
 streamlit
 librosa
-soundfile
+numpy
 openai-whisper
 moviepy==1.0.3
-numpy<2.0.0
 yt-dlp
