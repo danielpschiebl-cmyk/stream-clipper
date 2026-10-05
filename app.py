@@ -15,7 +15,7 @@ except ImportError:
 # --- DASHBOARD KONFIGURATION ---
 st.set_page_config(page_title="KI Stream Clipper", layout="wide")
 st.title("🎬 KI Stream Clipper & Shorts-Generator")
-st.write("Lade dein Stream-Video hoch oder gib einen Twitch-Link ein: Die KI findet laute Momente, transkribiert das Audio und schneidet Shorts!")
+st.write("Lade dein Stream-Video hoch oder gib einen Twitch-Link ein (empfohlen: Twitch-Clips oder kurze VODs)!")
 
 # --- SESSION STATE INITIALISIERUNG ---
 if "video_path" not in st.session_state:
@@ -34,19 +34,24 @@ tab1, tab2 = st.tabs(["🔗 Twitch-Link eingeben", "📁 Datei hochladen"])
 with tab1:
     twitch_url = st.text_input("Twitch VOD oder Clip Link:")
     if st.button("Video von Twitch laden") and twitch_url:
-        with st.spinner("Lade Video von Twitch herunter..."):
+        with st.spinner("Lade Video von Twitch herunter (speicherschonend)..."):
+            # VODs/Clips in komprimierter Qualität herunterladen, um RAM-Abstürze zu verhindern
             ydl_opts = {
-                'format': 'best',
+                'format': 'bestvideo[height<=720]+bestaudio/best[height<=720]/best',
                 'outtmpl': 'downloaded_stream.mp4',
-                'overwrites': True
+                'overwrites': True,
+                'max_filesize': 300 * 1024 * 1024  # Max 300MB Schutz
             }
             try:
+                if os.path.exists("downloaded_stream.mp4"):
+                    os.remove("downloaded_stream.mp4")
+                    
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     ydl.download([twitch_url])
                 st.session_state.video_path = "downloaded_stream.mp4"
                 st.success("Download erfolgreich!")
             except Exception as e:
-                st.error(f"Fehler beim Download: {e}")
+                st.error(f"Fehler beim Download (Datei eventuell zu groß): {e}")
 
 with tab2:
     uploaded_file = st.file_uploader("Stream-Video hochladen (.mp4)", type=["mp4", "mov"])
@@ -66,12 +71,12 @@ if st.session_state.video_path and os.path.exists(st.session_state.video_path):
         progress_bar = st.progress(0)
         status_text = st.empty()
 
-        # 1. Audio-Analyse für Highlights (Lautstärke-Spikes)
+        # 1. Audio-Analyse
         status_text.text("🔊 Analysiere Audiospur auf laute Highlights...")
         progress_bar.progress(20)
         
         try:
-            y, sr = librosa.load(st.session_state.video_path, sr=None)
+            y, sr = librosa.load(st.session_state.video_path, sr=None, duration=180) # Max 3 Min scannen
             rms = librosa.feature.rms(y=y)[0]
             times = librosa.times_like(rms, sr=sr)
             
@@ -85,44 +90,48 @@ if st.session_state.video_path and os.path.exists(st.session_state.video_path):
                 start_time = 0
             end_time = start_time + clip_dauer
         except Exception as e:
-            st.warning(f"Audio-Analyse angepasst: Nutze Standard-Startzeit (Fehler: {e})")
             start_time, end_time = 0, clip_dauer
 
         # 2. Transkription mit Whisper
-        status_text.text("🎙️ KI transkribiert Audio (Whisper)...")
+        status_text.text("🎙️ KI transkribiert Audio (Whisper tiny)...")
         progress_bar.progress(50)
-        model = whisper.load_model("tiny")
-        result = model.transcribe(st.session_state.video_path)
-        transcript_text = result.get("text", "Stream Highlight")
+        try:
+            model = whisper.load_model("tiny")
+            result = model.transcribe(st.session_state.video_path)
+            transcript_text = result.get("text", "Stream Highlight")
+        except Exception as e:
+            transcript_text = "Highlight"
 
         # 3. Videoschnitt im 9:16 Format
-        status_text.text("🎬 Schneide Short im 9:16 Format & füge Wasserzeichen ein...")
+        status_text.text("🎬 Schneide Short im 9:16 Format...")
         progress_bar.progress(75)
         
-        clip = VideoFileClip(st.session_state.video_path).subclip(start_time, end_time)
-        
-        # 9:16 Zurechtschneiden
-        w, h = clip.size
-        target_w = int(h * (9 / 16))
-        if target_w < w:
-            crop_x1 = (w - target_w) // 2
-            clip_cropped = clip.crop(x1=crop_x1, width=target_w)
-        else:
-            clip_cropped = clip
+        try:
+            clip = VideoFileClip(st.session_state.video_path).subclip(start_time, end_time)
+            
+            w, h = clip.size
+            target_w = int(h * (9 / 16))
+            if target_w < w:
+                crop_x1 = (w - target_w) // 2
+                clip_cropped = clip.crop(x1=crop_x1, width=target_w)
+            else:
+                clip_cropped = clip
 
-        output_path = "generated_short.mp4"
-        clip_cropped.write_videofile(output_path, codec="libx264", audio_codec="aac")
-        
-        progress_bar.progress(100)
-        status_text.text("✅ Fertig!")
-        
-        st.success("Dein Short wurde erfolgreich erstellt!")
-        st.video(output_path)
-        
-        with open(output_path, "rb") as file:
-            st.download_button(
-                label="⬇️️ Short herunterladen",
-                data=file,
-                file_name="stream_short.mp4",
-                mime="video/mp4"
-            )
+            output_path = "generated_short.mp4"
+            clip_cropped.write_videofile(output_path, codec="libx264", audio_codec="aac", preset="ultrafast")
+            
+            progress_bar.progress(100)
+            status_text.text("✅ Fertig!")
+            
+            st.success("Dein Short wurde erfolgreich erstellt!")
+            st.video(output_path)
+            
+            with open(output_path, "rb") as file:
+                st.download_button(
+                    label="⬇ Short herunterladen",
+                    data=file,
+                    file_name="stream_short.mp4",
+                    mime="video/mp4"
+                )
+        except Exception as e:
+            st.error(f"Fehler bei der Videoerstellung: {e}")
